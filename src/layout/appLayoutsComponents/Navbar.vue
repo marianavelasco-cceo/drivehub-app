@@ -68,6 +68,7 @@ import { Search, Bell, ChevronDown, LogOut, Car } from "lucide-vue-next";
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { useDark } from "@/composables/useDark.js";
+import { supabase } from "@/supabase/client.js";
 const { isDark } = useDark();
 
 const openUserMenu = ref(false);
@@ -77,8 +78,12 @@ const router = useRouter();
 
 const toggleMenu = () => { openUserMenu.value = !openUserMenu.value; };
 
-const logout = () => {
+const logout = async () => {
     openUserMenu.value = false;
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+        console.error('Logout error:', error);
+    }
     router.push({ name: 'login' });
 };
 

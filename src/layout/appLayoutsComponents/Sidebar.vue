@@ -85,6 +85,7 @@ import { LogOut, Sun, Moon, ChevronRight } from "lucide-vue-next";
 import { modules } from "./sidebarModules.js";
 import { useDark } from "@/composables/useDark.js";
 import { useSidebar } from "@/composables/useSidebar.js";
+import { supabase } from "@/supabase/client.js";
 
 const route = useRoute();
 const router = useRouter();
@@ -92,5 +93,11 @@ const currentRoute = computed(() => route.name);
 const { isDark, toggleDark } = useDark();
 const { isExpanded, toggleExpanded } = useSidebar();
 
-const logout = () => router.push({ name: 'login' });
+const logout = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+        console.error('Logout error:', error);
+    }
+    router.push({ name: 'login' });
+};
 </script>

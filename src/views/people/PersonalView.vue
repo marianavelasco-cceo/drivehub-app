@@ -5,11 +5,15 @@
 			<Button label="Nuevo Personal" icon="pi pi-plus" @click="openDialog()" />
 		</div>
 
-		<DataTable :value="personal" :pt="tablePt">
+		<DataTable :value="personal" :pt="tablePt" :loading="loading">
 			<Column field="nombre"   header="Nombre Completo" />
 			<Column field="cargo"    header="Cargo"           />
 			<Column field="email"    header="Email"           />
-			<Column field="sucursal" header="Sucursal"        />
+			<Column header="Sucursal">
+			<template #body="{ data }">
+				{{ sucursalNamesById[data.sucursal_id] || data.sucursal?.nombre || 'Sin sucursal' }}
+			</template>
+		</Column>
 			<Column header="Acciones" style="width:100px">
 				<template #body="{ data }">
 					<div class="flex gap-2">
@@ -41,12 +45,12 @@
 				</div>
 				<div class="flex flex-col gap-1">
 					<label class="text-sm font-medium">Sucursal</label>
-					<Select v-model="form.sucursal" :options="sucursalesOpts" placeholder="Seleccionar sucursal" />
+					<Select v-model="form.sucursal_id" :options="sucursalesOpts" optionLabel="label" optionValue="value" placeholder="Seleccionar sucursal" />
 				</div>
 			</div>
 			<template #footer>
 				<Button label="Cancelar" severity="secondary" text @click="dialogVisible = false" />
-				<Button :label="editingItem ? 'Guardar' : 'Crear'" @click="save" />
+				<Button :label="editingItem ? 'Guardar' : 'Crear'" :loading="saving" @click="save" />
 			</template>
 		</Dialog>
 
@@ -61,10 +65,11 @@
 </template>
 
 <script setup>
-import { ref, reactive } from "vue";
+import { ref, reactive, onMounted } from "vue";
 import { Pencil, Trash2 } from "lucide-vue-next";
 import { useDark } from "@/composables/useDark.js";
 import { useTablePt } from "@/composables/useTablePt.js";
+import { supabase } from "@/supabase/client.js";
 import DataTable from "primevue/datatable";
 import Column from "primevue/column";
 import Dialog from "primevue/dialog";
@@ -75,38 +80,80 @@ import Select from "primevue/select";
 const { isDark } = useDark();
 const { tablePt } = useTablePt();
 
-const sucursalesOpts = ['Central Automotriz', 'Auto Norte', 'Sucursal Pacífico']
+const sucursalesOpts = ref([])
+const sucursalNamesById = ref({})
+const personal = ref([])
 
-const personal = ref([
-	{ id: 1, nombre: 'Carlos Mendoza', cargo: 'Gerente',       email: 'carlos@autocentral.mx', sucursal: 'Central Automotriz' },
-	{ id: 2, nombre: 'Ana García',     cargo: 'Vendedora',     email: 'ana@autocentral.mx',    sucursal: 'Central Automotriz' },
-	{ id: 3, nombre: 'Roberto López',  cargo: 'Mecánico',      email: 'roberto@autonorte.mx',  sucursal: 'Auto Norte' },
-	{ id: 4, nombre: 'María Torres',   cargo: 'Administradora',email: 'maria@autonorte.mx',    sucursal: 'Auto Norte' },
-	{ id: 5, nombre: 'Luis Hernández', cargo: 'Vendedor',      email: 'luis@pacifico.mx',      sucursal: 'Sucursal Pacífico' },
-])
-
-const dialogVisible       = ref(false)
+const loading = ref(false)
+const saving = ref(false)
+const dialogVisible = ref(false)
 const deleteDialogVisible = ref(false)
-const editingItem         = ref(null)
-const deletingItem        = ref(null)
-const form = reactive({ nombre: '', cargo: '', email: '', sucursal: '' })
+const editingItem = ref(null)
+const deletingItem = ref(null)
+const form = reactive({ nombre: '', cargo: '', email: '', sucursal_id: null })
 
 const openDialog = (item = null) => {
 	editingItem.value = item
-	Object.assign(form, item ?? { nombre: '', cargo: '', email: '', sucursal: '' })
+	Object.assign(form, item ?? { nombre: '', cargo: '', email: '', sucursal_id: null })
+	if (item?.sucursal_id) {
+		form.sucursal_id = item.sucursal_id
+	} else if (item?.sucursal?.id) {
+		form.sucursal_id = item.sucursal.id
+	}
 	dialogVisible.value = true
 }
-const save = () => {
-	if (editingItem.value) {
-		Object.assign(personal.value.find(p => p.id === editingItem.value.id), form)
-	} else {
-		personal.value.push({ id: Date.now(), ...form })
+const fetchSucursales = async () => {
+	const { data, error } = await supabase.from('sucursales').select('id,nombre').order('created_at')
+	if (error) {
+		console.error('Error al cargar sucursales:', error)
+		return
 	}
+	sucursalesOpts.value = (data ?? []).map(item => ({ label: item.nombre, value: item.id }))
+	sucursalNamesById.value = Object.fromEntries((data ?? []).map(item => [item.id, item.nombre]))
+}
+
+const fetchPersonal = async () => {
+	loading.value = true
+	const { data, error } = await supabase.from('personal').select('*').order('created_at')
+	if (error) {
+		console.error('Error al cargar personal:', error)
+		personal.value = []
+	} else {
+		personal.value = data ?? []
+	}
+	loading.value = false
+}
+
+const save = async () => {
+	saving.value = true
+	const payload = {
+		nombre: form.nombre,
+		cargo: form.cargo,
+		email: form.email,
+		sucursal_id: form.sucursal_id,
+	}
+
+	if (editingItem.value) {
+		await supabase.from('personal').update(payload).eq('id', editingItem.value.id)
+	} else {
+		await supabase.from('personal').insert(payload)
+	}
+
 	dialogVisible.value = false
+	saving.value = false
+	await fetchPersonal()
 }
 const confirmDelete = (item) => { deletingItem.value = item; deleteDialogVisible.value = true }
-const deleteItem    = () => {
-	personal.value = personal.value.filter(p => p.id !== deletingItem.value.id)
+const deleteItem = async () => {
+	saving.value = true
+	await supabase.from('personal').delete().eq('id', deletingItem.value.id)
 	deleteDialogVisible.value = false
+	saving.value = false
+	await fetchPersonal()
 }
+
+onMounted(async () => {
+	await fetchSucursales()
+	await fetchPersonal()
+})
 </script>
